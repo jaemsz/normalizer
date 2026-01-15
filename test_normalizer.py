@@ -337,5 +337,144 @@ class TestComplexRules(unittest.TestCase):
         )
 
 
+class TestEdgeCasesGracefulHandling(unittest.TestCase):
+    """Test that edge cases and invalid inputs are handled gracefully without exceptions."""
+
+    def test_empty_string(self):
+        """Empty input returns empty output."""
+        self.assertEqual(normalize(""), "")
+
+    def test_whitespace_only(self):
+        """Whitespace-only input returns empty output."""
+        self.assertEqual(normalize("   "), "")
+        self.assertEqual(normalize("\t\n"), "")
+
+    def test_unbalanced_open_paren(self):
+        """Unbalanced open parenthesis is handled gracefully."""
+        result = normalize("(class:foo")
+        self.assertIn("class:foo", result)
+
+    def test_unbalanced_close_paren(self):
+        """Unbalanced close parenthesis is handled gracefully."""
+        result = normalize("class:foo)")
+        self.assertEqual(result, "class:foo")
+
+    def test_empty_parentheses(self):
+        """Empty parentheses are handled gracefully."""
+        result = normalize("class:foo ()")
+        self.assertEqual(result, "class:foo")
+
+    def test_just_parentheses(self):
+        """Only parentheses returns empty."""
+        self.assertEqual(normalize("()"), "")
+        self.assertEqual(normalize("(())"), "")
+
+    def test_only_operator(self):
+        """Operator without operands returns empty."""
+        self.assertEqual(normalize("and"), "")
+        self.assertEqual(normalize("or"), "")
+        self.assertEqual(normalize("not"), "")
+
+    def test_consecutive_operators(self):
+        """Consecutive operators are handled gracefully."""
+        result = normalize("class:foo and and bar:baz")
+        self.assertIn("class:foo", result)
+
+    def test_operator_at_start(self):
+        """Operator at start is handled gracefully."""
+        result = normalize("and class:foo")
+        self.assertEqual(result, "class:foo")
+
+    def test_operator_at_end(self):
+        """Operator at end is handled gracefully."""
+        result = normalize("class:foo or")
+        self.assertEqual(result, "class:foo")
+
+    def test_missing_value_after_colon(self):
+        """Missing value after colon returns empty."""
+        self.assertEqual(normalize("class:"), "")
+
+    def test_missing_field_before_colon(self):
+        """Missing field before colon returns empty."""
+        self.assertEqual(normalize(":value"), "")
+
+    def test_random_garbage(self):
+        """Random invalid characters return empty."""
+        self.assertEqual(normalize("@#$%^&"), "")
+        self.assertEqual(normalize("!!!"), "")
+
+    def test_unclosed_double_quote(self):
+        """Unclosed double quote is handled gracefully."""
+        result = normalize('class:"foo')
+        # Should not raise, returns empty or partial
+        self.assertIsInstance(result, str)
+
+    def test_unclosed_single_quote(self):
+        """Unclosed single quote is handled gracefully."""
+        result = normalize("class:'foo")
+        self.assertIsInstance(result, str)
+
+    def test_unclosed_bracket(self):
+        """Unclosed bracket is handled gracefully."""
+        result = normalize("class:foo field:[a,b")
+        self.assertIsInstance(result, str)
+
+    def test_deeply_nested_parens(self):
+        """Deeply nested parentheses don't cause stack overflow."""
+        rule = "class:foo " + "(" * 50 + "field:bar" + ")" * 50
+        result = normalize(rule)
+        self.assertIn("class:foo", result)
+
+    def test_very_long_input(self):
+        """Very long input is handled without issues."""
+        fields = " ".join([f"field{i}:value{i}" for i in range(100)])
+        rule = f"class:test {fields}"
+        result = normalize(rule)
+        self.assertIn("class:test", result)
+
+    def test_unicode_characters(self):
+        """Unicode characters don't cause crashes."""
+        result = normalize("class:测试 field:值")
+        self.assertIsInstance(result, str)
+
+    def test_newlines_in_input(self):
+        """Newlines in input are handled as whitespace."""
+        result = normalize("class:foo\neventid:123")
+        self.assertEqual(result, "class:foo and has(eventid)")
+
+    def test_tabs_in_input(self):
+        """Tabs in input are handled as whitespace."""
+        result = normalize("class:foo\teventid:123")
+        self.assertEqual(result, "class:foo and has(eventid)")
+
+    def test_mixed_valid_invalid(self):
+        """Mix of valid and invalid tokens extracts valid parts."""
+        result = normalize("class:foo @#$ eventid:123")
+        self.assertIn("class:foo", result)
+
+
+class TestNoneHandling(unittest.TestCase):
+    """Test internal handling of None values."""
+
+    def test_all_ignored_fields(self):
+        """Rule with only ignored fields returns empty."""
+        self.assertEqual(normalize("rawmsg:test"), "")
+
+    def test_ignored_in_or_group(self):
+        """Ignored field in OR group simplifies correctly."""
+        result = normalize("class:foo (rawmsg:test or eventid:123)")
+        self.assertEqual(result, "class:foo and (has(eventid))")
+
+    def test_ignored_in_and_group(self):
+        """Ignored field in AND group simplifies correctly."""
+        result = normalize("class:foo (rawmsg:test and eventid:123)")
+        self.assertEqual(result, "class:foo and (has(eventid))")
+
+    def test_all_ignored_in_group(self):
+        """Group with all ignored fields simplifies correctly."""
+        result = normalize("class:foo (rawmsg:a or rawmsg:b)")
+        self.assertEqual(result, "class:foo")
+
+
 if __name__ == '__main__':
     unittest.main()
