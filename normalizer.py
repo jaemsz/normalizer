@@ -9,7 +9,7 @@ Transformation rules:
 
 import re
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import FrozenSet, List, Optional, Set, Union
 
 
 # Token types
@@ -23,7 +23,7 @@ class FieldValue:
 class FieldArray:
     """Field with array of values, e.g., field:[foo,bar]"""
     field: str
-    values: list[str]
+    values: List[str]
 
 
 @dataclass
@@ -59,9 +59,9 @@ class FunctionCall:
 Token = Union[FieldValue, FieldArray, Operator, NotOperator, OpenParen, CloseParen, FunctionCall]
 
 
-def tokenize(rule: str) -> list[Token]:
+def tokenize(rule: str) -> List[Token]:
     """Tokenize rule into tokens."""
-    tokens: list[Token] = []
+    tokens: List[Token] = []
     i = 0
     rule = rule.strip()
 
@@ -179,7 +179,7 @@ class FieldExpr:
 class FieldArrayExpr:
     """Field with array of possible values."""
     field: str
-    values: list[str]
+    values: List[str]
 
 
 @dataclass
@@ -220,7 +220,7 @@ Expr = Union[FieldExpr, FieldArrayExpr, FunctionExpr, HasExpr, NotExpr, BinaryEx
 class Parser:
     """Parse tokens into an AST."""
 
-    def __init__(self, tokens: list[Token]):
+    def __init__(self, tokens: List[Token]):
         self.tokens = tokens
         self.pos = 0
 
@@ -290,7 +290,7 @@ class Parser:
         return None
 
 
-def transform(expr: Expr, preserve_fields: Optional[set[str]] = None, ignore_fields: Optional[set[str]] = None) -> Expr:
+def transform(expr: Expr, preserve_fields: Optional[Set[str]] = None, ignore_fields: Optional[Set[str]] = None) -> Expr:
     """
     Transform the AST to generalized form.
 
@@ -303,7 +303,7 @@ def transform(expr: Expr, preserve_fields: Optional[set[str]] = None, ignore_fie
     if preserve_fields is None:
         preserve_fields = {'class', 'metaclass'}
     if ignore_fields is None:
-        ignore_fields = {'rawmsg'}
+        ignore_fields = {'rawmsg', 'srcipv4', 'dstipv4', 'srcipv6', 'dstipv6', 'srcport', 'dstport'}
 
     if expr is None:
         return None
@@ -350,12 +350,15 @@ def transform(expr: Expr, preserve_fields: Optional[set[str]] = None, ignore_fie
         inner = transform(expr.expr, preserve_fields, ignore_fields)
         if inner is None:
             return None
+        # Unwrap single-element groups (not BinaryExpr)
+        if not isinstance(inner, BinaryExpr):
+            return inner
         return GroupExpr(inner)
 
     return expr
 
 
-def get_field_signature(expr: Expr, preserve_fields: Optional[set[str]] = None) -> frozenset[str]:
+def get_field_signature(expr: Expr, preserve_fields: Optional[Set[str]] = None) -> FrozenSet[str]:
     """
     Get a canonical signature of has() fields referenced in an expression.
     Used for deduplicating OR branches that check the same fields.
@@ -412,19 +415,19 @@ def deduplicate(expr: Expr) -> Expr:
 
     if isinstance(expr, BinaryExpr):
         # Collect all terms at this level with the SAME operator
-        terms: list[Expr] = []
+        terms: List[Expr] = []
         op = expr.op
         collect_terms_with_op(expr, terms, op)
 
         # First, recursively deduplicate all nested expressions
-        deduped_terms: list[Expr] = []
+        deduped_terms: List[Expr] = []
         for term in terms:
             deduped_terms.append(deduplicate(term))
 
         # Deduplicate based on operator type
-        seen_has: set[str] = set()
-        seen_signatures: set[frozenset[str]] = set()
-        deduped: list[Expr] = []
+        seen_has: Set[str] = set()
+        seen_signatures: Set[FrozenSet[str]] = set()
+        deduped: List[Expr] = []
 
         for term in deduped_terms:
             if term is None:
@@ -457,7 +460,7 @@ def deduplicate(expr: Expr) -> Expr:
     return expr
 
 
-def collect_terms_with_op(expr: Expr, terms: list[Expr], op: str) -> None:
+def collect_terms_with_op(expr: Expr, terms: List[Expr], op: str) -> None:
     """Collect all terms from a chain of binary expressions with the same operator."""
     if isinstance(expr, BinaryExpr) and expr.op == op:
         collect_terms_with_op(expr.left, terms, op)
