@@ -9,7 +9,7 @@ Transformation rules:
 
 import re
 from dataclasses import dataclass
-from typing import Union
+from typing import Optional, Union
 
 
 # Token types
@@ -60,8 +60,8 @@ Token = Union[FieldValue, FieldArray, Operator, NotOperator, OpenParen, ClosePar
 
 
 def tokenize(rule: str) -> list[Token]:
-    """Tokenize a SIEM rule string into tokens."""
-    tokens = []
+    """Tokenize rule into tokens."""
+    tokens: list[Token] = []
     i = 0
     rule = rule.strip()
 
@@ -290,7 +290,7 @@ class Parser:
         return None
 
 
-def transform(expr: Expr, preserve_fields: set[str] = None, ignore_fields: set[str] = None) -> Expr:
+def transform(expr: Expr, preserve_fields: Optional[set[str]] = None, ignore_fields: Optional[set[str]] = None) -> Expr:
     """
     Transform the AST to generalized form.
 
@@ -373,13 +373,13 @@ def deduplicate(expr: Expr) -> Expr:
 
     if isinstance(expr, BinaryExpr):
         # Collect all terms at this level with the same operator
-        terms = []
-        ops = set()
+        terms: list[Expr] = []
+        ops: set[str] = set()
         collect_terms(expr, terms, ops)
 
         # Deduplicate HasExpr by field name
-        seen_has = set()
-        deduped = []
+        seen_has: set[str] = set()
+        deduped: list[Expr] = []
         for term in terms:
             if isinstance(term, HasExpr):
                 if term.field not in seen_has:
@@ -393,7 +393,7 @@ def deduplicate(expr: Expr) -> Expr:
         if not deduped:
             return None
 
-        result = deduped[0]
+        result: Expr = deduped[0]
         # Use the most common operator or default to 'and'
         op = 'and' if 'and' in ops else ('or' if 'or' in ops else 'and')
         for term in deduped[1:]:
@@ -404,7 +404,7 @@ def deduplicate(expr: Expr) -> Expr:
     return expr
 
 
-def collect_terms(expr: Expr, terms: list, ops: set):
+def collect_terms(expr: Expr, terms: list[Expr], ops: set[str]) -> None:
     """Collect all terms from a chain of binary expressions."""
     if isinstance(expr, BinaryExpr):
         ops.add(expr.op)
@@ -468,83 +468,10 @@ def normalize(rule: str) -> str:
 
 
 if __name__ == '__main__':
-    # Test examples from CLAUDE.md
-    test_rules = [
-        "class:ms_windows_event",
-        "class:ms_windows_event eventid:1234",
-        "class:ms_windows_event (eventid:1234 or eventid:2345)",
-        # New syntax: array values
-        "class:ms_windows_event status:[foo,bar]",
-        # New syntax: negation
-        "class:ms_windows_event not status:[foo,bar]",
-        # Combined
-        "class:ms_windows_event eventid:1234 not status:[error,warning]",
-        # Exclamation mark negation
-        "class:ms_windows_event !field:[abc,foo,123]",
-        "class:ms_windows_event !eventid:1234",
-        # Equals sign separator
-        "class=ms_windows_event",
-        "class=ms_windows_event eventid=1234",
-        "class=ms_windows_event status=[foo,bar]",
-        "class=ms_windows_event !status=[error,warning]",
-        # Quoted values (double quotes)
-        'class:ms_windows_event field="the value"',
-        'class="ms_windows_event" message="hello world"',
-        'class:ms_windows_event status=["error message", "warning text"]',
-        # Single quotes
-        "class:ms_windows_event field='the value'",
-        "class='ms_windows_event' message='hello world'",
-        # Backticks
-        "class:ms_windows_event field=`the value`",
-        "class=`ms_windows_event` message=`hello world`",
-        # Mixed quotes in array
-        "class:ms_windows_event status=['error', \"warning\", `info`]",
-        # Complex nested parentheses
-        "class:ms_windows_event (eventid:1234 or (status:error and level:critical))",
-        "class:ms_windows_event ((eventid:1234 or eventid:5678) and (status:error or status:warning))",
-        "class:ms_windows_event (((field1:a or field1:b) and field2:c) or (field3:d and (field4:e or field4:f)))",
-        # Deep nesting with negation
-        "class:ms_windows_event (eventid:123 and (!status:[error,warning] or (level:high and !source:internal)))",
-        # Metaclass (preserved like class)
-        "metaclass:network_event status:active",
-        "class:ms_windows_event metaclass:security eventid:1234",
-        # Not-equal separator (!:)
-        "class:ms_windows_event action!:'block'",
-        "class:ms_windows_event status!:error level!:critical",
-        "class:ms_windows_event action!:[allow,deny]",
-        # Dollar sign variable values
-        "class:ms_windows_event srcipv4:$exclusions.global.srcipv4",
-        "class:ms_windows_event srcip:$vars.ip dstip:$vars.target",
-        "class:ms_windows_event !field:$some.variable",
-        # Ampersand array syntax
-        "class:ms_windows_event args:&[`fielssytem`,`--test`]",
-        # Regex values (forward slashes)
-        "class:ms_windows_event field:/foobar/",
-        "class:ms_windows_event pattern:/^test.*end$/",
-        # Complex combined test
-        "metaclass:windows eventid=[1,2,3] (msg:/(service name:|the)\\s+(asdf|back|usb)\\s+service/ OR serviceid=['asdf','wer','oiuouo']) NOT srcipv4:$exclusions.global.srcipv4",
-        # Ignored field (rawmsg)
-        "class:ms_windows_event rawmsg:/test/",
-        "class:ms_windows_event eventid:1234 rawmsg:'some message' status:error",
-        "class:ms_windows_event (rawmsg:/pattern/ or eventid:123)",
-        # Complex test with missing, wildcards, and multiple NOT
-        "metaclass:http_proxy dstport=[80,443] missing:referrer useragent=\"Google\" NOT domain:'*.google.com' NOT dstdomain=google.com NOT rawmsg:\"*Google\" NOT srcipv4:$exclusions.global.srcipv4",
-        # Colon-style functions
-        "class:ms_windows_event has:username missing:domain",
-        "class:ms_windows_event md5:filehash sha256:checksum",
-        "class:ms_windows_event lower:hostname upper:status length:message",
-        # Function calls
-        "class=ms_windows_event length(domain)>20",
-        "class=ms_windows_event length(username)>=10 and count(events)<100",
-        "class=ms_windows_event (length(domain)>20 or size(payload)!=0)",
-        "class=ms_windows_event !length(field)=0",
-    ]
-
-    print("Normalizer Test Results")
-    print("=" * 60)
-
-    for rule in test_rules:
-        result = normalize(rule)
-        print(f"Input:  {rule}")
-        print(f"Output: {result}")
-        print("-" * 60)
+    import sys
+    if len(sys.argv) > 1:
+        rule = ' '.join(sys.argv[1:])
+        print(normalize(rule))
+    else:
+        print("Usage: python normalizer.py <rule>")
+        print("Example: python normalizer.py 'class:ms_windows_event eventid:1234'")
