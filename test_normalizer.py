@@ -207,15 +207,16 @@ class TestVariableValues(unittest.TestCase):
     """Test dollar sign variable values."""
 
     def test_variable_value(self):
+        # srcipv4 is in ignore_fields, so use a different field
         self.assertEqual(
-            normalize("class:ms_windows_event srcipv4:$exclusions.global.srcipv4"),
-            "class:ms_windows_event and has(srcipv4)"
+            normalize("class:ms_windows_event hostname:$exclusions.global.hostname"),
+            "class:ms_windows_event and has(hostname)"
         )
 
     def test_multiple_variables(self):
         self.assertEqual(
-            normalize("class:ms_windows_event srcip:$vars.ip dstip:$vars.target"),
-            "class:ms_windows_event and has(srcip) and has(dstip)"
+            normalize("class:ms_windows_event srchost:$vars.ip dsthost:$vars.target"),
+            "class:ms_windows_event and has(srchost) and has(dsthost)"
         )
 
     def test_negated_variable(self):
@@ -263,9 +264,10 @@ class TestIgnoredFields(unittest.TestCase):
         )
 
     def test_rawmsg_in_group(self):
+        # Single-element groups are unwrapped after ignored field is removed
         self.assertEqual(
             normalize("class:ms_windows_event (rawmsg:/pattern/ or eventid:123)"),
-            "class:ms_windows_event and (has(eventid))"
+            "class:ms_windows_event and has(eventid)"
         )
 
 
@@ -322,18 +324,20 @@ class TestComplexRules(unittest.TestCase):
         result = normalize(
             "metaclass:windows eventid=[1,2,3] (msg:/(service name:|the)\\s+(asdf|back|usb)\\s+service/ OR serviceid=['asdf','wer','oiuouo']) NOT srcipv4:$exclusions.global.srcipv4"
         )
+        # srcipv4 is in ignore_fields, so it's removed
         self.assertEqual(
             result,
-            "metaclass:windows and has(eventid) and (has(msg) or has(serviceid)) and has(srcipv4)"
+            "metaclass:windows and has(eventid) and (has(msg) or has(serviceid))"
         )
 
     def test_complex_with_missing_and_multiple_not(self):
         result = normalize(
             "metaclass:http_proxy dstport=[80,443] missing:referrer useragent=\"Google\" NOT domain:'*.google.com' NOT dstdomain=google.com NOT rawmsg:\"*Google\" NOT srcipv4:$exclusions.global.srcipv4"
         )
+        # dstport, rawmsg, srcipv4 are in ignore_fields, so they're removed
         self.assertEqual(
             result,
-            "metaclass:http_proxy and has(dstport) and has(referrer) and has(useragent) and has(domain) and has(dstdomain) and has(srcipv4)"
+            "metaclass:http_proxy and has(referrer) and has(useragent) and has(domain) and has(dstdomain)"
         )
 
     def test_complex_or_branches_with_regex(self):
@@ -349,11 +353,26 @@ class TestComplexRules(unittest.TestCase):
         # OR operators preserved, duplicate branches deduplicated by field signature
         # 4 branches have {useragent, uri} so they're deduplicated to 1
         # 1 branch has {httpmethod, useragent, uri}
-        # NOT srcipv4 at the end becomes has(srcipv4)
+        # srcipv4 is in ignore_fields, so it's removed
         self.assertEqual(
             result,
             "metaclass:http_proxy and (has(useragent) and has(uri)) or "
-            "(has(httpmethod) and has(useragent) and has(uri)) and has(srcipv4)"
+            "(has(httpmethod) and has(useragent) and has(uri))"
+        )
+
+    def test_metaclass_array_with_ignored_fields(self):
+        """Metaclass array with ignored fields (dstipv4, srcipv4) removed."""
+        rule = (
+            r'metaclass:[asa,http_proxy] (dstipv4=$home.nets OR dstisp:/private*/) '
+            r'uri:/^\/\+CSCOIE|U)\+/cedsave\.html\?.+ced=\.\.\.\/\.\.\/locale\/ru\/LC_MESSAGES\/webvpn\.mo$/ '
+            r'NOT srcipv4:$exclusions.global.srcipv4'
+        )
+        result = normalize(rule)
+        # dstipv4 and srcipv4 are in ignore_fields
+        # Single-element group (dstisp) is unwrapped
+        self.assertEqual(
+            result,
+            "metaclass:[asa,http_proxy] and has(dstisp) and has(uri)"
         )
 
 
@@ -482,13 +501,15 @@ class TestNoneHandling(unittest.TestCase):
 
     def test_ignored_in_or_group(self):
         """Ignored field in OR group simplifies correctly."""
+        # Single-element groups are unwrapped after ignored field is removed
         result = normalize("class:foo (rawmsg:test or eventid:123)")
-        self.assertEqual(result, "class:foo and (has(eventid))")
+        self.assertEqual(result, "class:foo and has(eventid)")
 
     def test_ignored_in_and_group(self):
         """Ignored field in AND group simplifies correctly."""
+        # Single-element groups are unwrapped after ignored field is removed
         result = normalize("class:foo (rawmsg:test and eventid:123)")
-        self.assertEqual(result, "class:foo and (has(eventid))")
+        self.assertEqual(result, "class:foo and has(eventid)")
 
     def test_all_ignored_in_group(self):
         """Group with all ignored fields simplifies correctly."""
