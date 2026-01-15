@@ -355,9 +355,48 @@ def transform(expr: Expr, preserve_fields: Optional[set[str]] = None, ignore_fie
     return expr
 
 
+def get_field_signature(expr: Expr, preserve_fields: Optional[set[str]] = None) -> frozenset[str]:
+    """
+    Get a canonical signature of has() fields referenced in an expression.
+    Used for deduplicating OR branches that check the same fields.
+    Excludes preserved fields (class, metaclass) from the signature.
+    """
+    if preserve_fields is None:
+        preserve_fields = {'class', 'metaclass'}
+
+    if expr is None:
+        return frozenset()
+
+    if isinstance(expr, HasExpr):
+        return frozenset([expr.field])
+
+    if isinstance(expr, FieldExpr):
+        # Exclude preserved fields from signature
+        if expr.field in preserve_fields:
+            return frozenset()
+        return frozenset([expr.field])
+
+    if isinstance(expr, FieldArrayExpr):
+        if expr.field in preserve_fields:
+            return frozenset()
+        return frozenset([expr.field])
+
+    if isinstance(expr, (NotExpr, GroupExpr)):
+        inner = expr.expr
+        return get_field_signature(inner, preserve_fields)
+
+    if isinstance(expr, BinaryExpr):
+        left_sig = get_field_signature(expr.left, preserve_fields)
+        right_sig = get_field_signature(expr.right, preserve_fields)
+        return left_sig | right_sig
+
+    return frozenset()
+
+
 def deduplicate(expr: Expr) -> Expr:
     """
     Deduplicate has() expressions at the same level.
+    For OR expressions, also deduplicate branches with identical field signatures.
     """
     if expr is None:
         return None
@@ -372,30 +411,44 @@ def deduplicate(expr: Expr) -> Expr:
         return GroupExpr(deduplicate(expr.expr))
 
     if isinstance(expr, BinaryExpr):
-        # Collect all terms at this level with the same operator
+        # Collect all terms at this level with the SAME operator
         terms: list[Expr] = []
-        ops: set[str] = set()
-        collect_terms(expr, terms, ops)
+        op = expr.op
+        collect_terms_with_op(expr, terms, op)
 
-        # Deduplicate HasExpr by field name
-        seen_has: set[str] = set()
-        deduped: list[Expr] = []
+        # First, recursively deduplicate all nested expressions
+        deduped_terms: list[Expr] = []
         for term in terms:
+            deduped_terms.append(deduplicate(term))
+
+        # Deduplicate based on operator type
+        seen_has: set[str] = set()
+        seen_signatures: set[frozenset[str]] = set()
+        deduped: list[Expr] = []
+
+        for term in deduped_terms:
+            if term is None:
+                continue
             if isinstance(term, HasExpr):
+                # For HasExpr, deduplicate by field name (both AND and OR)
                 if term.field not in seen_has:
                     seen_has.add(term.field)
                     deduped.append(term)
+            elif op == 'or':
+                # For OR branches, deduplicate by field signature
+                sig = get_field_signature(term)
+                if sig not in seen_signatures:
+                    seen_signatures.add(sig)
+                    deduped.append(term)
             else:
-                # Recursively deduplicate nested expressions
-                deduped.append(deduplicate(term))
+                # For AND, keep all non-HasExpr terms
+                deduped.append(term)
 
         # Rebuild the expression tree
         if not deduped:
             return None
 
         result: Expr = deduped[0]
-        # Use the most common operator or default to 'and'
-        op = 'and' if 'and' in ops else ('or' if 'or' in ops else 'and')
         for term in deduped[1:]:
             result = BinaryExpr(result, op, term)
 
@@ -404,12 +457,11 @@ def deduplicate(expr: Expr) -> Expr:
     return expr
 
 
-def collect_terms(expr: Expr, terms: list[Expr], ops: set[str]) -> None:
-    """Collect all terms from a chain of binary expressions."""
-    if isinstance(expr, BinaryExpr):
-        ops.add(expr.op)
-        collect_terms(expr.left, terms, ops)
-        collect_terms(expr.right, terms, ops)
+def collect_terms_with_op(expr: Expr, terms: list[Expr], op: str) -> None:
+    """Collect all terms from a chain of binary expressions with the same operator."""
+    if isinstance(expr, BinaryExpr) and expr.op == op:
+        collect_terms_with_op(expr.left, terms, op)
+        collect_terms_with_op(expr.right, terms, op)
     else:
         terms.append(expr)
 
