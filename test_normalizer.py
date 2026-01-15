@@ -336,6 +336,26 @@ class TestComplexRules(unittest.TestCase):
             "metaclass:http_proxy and has(dstport) and has(referrer) and has(useragent) and has(domain) and has(dstdomain) and has(srcipv4)"
         )
 
+    def test_complex_or_branches_with_regex(self):
+        """Complex rule with multiple OR branches, regex patterns, and various syntax."""
+        rule = (
+            'metaclass:http_proxy (useragent="Mozilla/3.0 (compatible; Indy Library)" '
+            r'uri:/find_dnfile\.php\?u[a-z0-9]{64}/) OR (httpmethod=post useragent="python" '
+            'uri="/a/b/config.php") OR (useragent="IE" uri:dn.snk) OR (useragent="foo" '
+            r'uri:/abc.def/) OR (useragent="whoa" uri:/alsdjf.ksdjf\.exe/) NOT '
+            'srcipv4:$exclusions.global.srcipv4'
+        )
+        result = normalize(rule)
+        # OR operators preserved, duplicate branches deduplicated by field signature
+        # 4 branches have {useragent, uri} so they're deduplicated to 1
+        # 1 branch has {httpmethod, useragent, uri}
+        # NOT srcipv4 at the end becomes has(srcipv4)
+        self.assertEqual(
+            result,
+            "metaclass:http_proxy and (has(useragent) and has(uri)) or "
+            "(has(httpmethod) and has(useragent) and has(uri)) and has(srcipv4)"
+        )
+
 
 class TestEdgeCasesGracefulHandling(unittest.TestCase):
     """Test that edge cases and invalid inputs are handled gracefully without exceptions."""
