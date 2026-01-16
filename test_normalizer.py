@@ -356,6 +356,17 @@ class TestFieldArraySyntax(unittest.TestCase):
         )
 
 
+class TestDeduplication(unittest.TestCase):
+    """Test deduplication of identical groups and expressions."""
+
+    def test_duplicate_groups_deduplicated(self):
+        """Identical parenthesized groups should be deduplicated."""
+        self.assertEqual(
+            normalize("(class:ms_windows_event category=threat status:[new,updated] severity:high) and (class:ms_windows_event category=threat status:[new,updated] severity:high)"),
+            "class:ms_windows_event and has(category) and has(status) and has(severity)"
+        )
+
+
 class TestComplexRules(unittest.TestCase):
     """Test complex combined rules."""
 
