@@ -274,6 +274,20 @@ class TestIgnoredFields(unittest.TestCase):
 class TestFunctionCalls(unittest.TestCase):
     """Test function call syntax."""
 
+    def test_explicit_has_function_preserved(self):
+        """Explicit has(field) in rule should be preserved in output."""
+        self.assertEqual(
+            normalize("class=ms_windows_event has(srcipv4)"),
+            "class:ms_windows_event and has(srcipv4)"
+        )
+
+    def test_explicit_has_deduplicated(self):
+        """Duplicate explicit has(field) calls should be deduplicated."""
+        self.assertEqual(
+            normalize("class=ms_windows_event has(srcipv4) has(srcipv4)"),
+            "class:ms_windows_event and has(srcipv4)"
+        )
+
     def test_colon_style_has_missing(self):
         self.assertEqual(
             normalize("class:ms_windows_event has:username missing:domain"),
