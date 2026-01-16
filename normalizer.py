@@ -28,9 +28,10 @@ class FieldArray:
 
 @dataclass
 class FieldsArray:
-    """Array of fields with a single value, e.g., [field1,field2]:value"""
+    """Array of fields with a single value, e.g., [field1,field2]:value or [field1,field2]&:value"""
     fields: List[str]
     value: str
+    combine_op: str = 'or'  # 'or' for default, 'and' for & modifier
 
 
 @dataclass
@@ -78,43 +79,49 @@ def tokenize(rule: str) -> List[Token]:
             i += 1
             continue
 
-        # [field1,field2]:value pattern (array of fields with single value)
+        # [field1,field2]:value or [field1,field2]&:value pattern (array of fields with single value)
+        # The & modifier indicates AND instead of OR
         # Must check before open parenthesis since both start with special chars
         if rule[i] == '[':
-            # Try to match [fields]:value pattern with various value types
-            # Regex value: [field1,field2]:/pattern/
-            match = re.match(r'\[([^\]]+)\][:=](/[^/]*/)', rule[i:])
+            # Try to match [fields](&)?:value pattern with various value types
+            # Regex value: [field1,field2]:/pattern/ or [field1,field2]&:/pattern/
+            match = re.match(r'\[([^\]]+)\](&?)[:=](/[^/]*/)', rule[i:])
             if match:
                 fields = [f.strip() for f in match.group(1).split(',')]
-                tokens.append(FieldsArray(fields, match.group(2)))
+                combine_op = 'and' if match.group(2) == '&' else 'or'
+                tokens.append(FieldsArray(fields, match.group(3), combine_op))
                 i += len(match.group(0))
                 continue
-            # Quoted value (double quotes): [field1,field2]:"value"
-            match = re.match(r'\[([^\]]+)\][:=]"([^"]*)"', rule[i:])
+            # Quoted value (double quotes): [field1,field2]:"value" or [field1,field2]&:"value"
+            match = re.match(r'\[([^\]]+)\](&?)[:=]"([^"]*)"', rule[i:])
             if match:
                 fields = [f.strip() for f in match.group(1).split(',')]
-                tokens.append(FieldsArray(fields, match.group(2)))
+                combine_op = 'and' if match.group(2) == '&' else 'or'
+                tokens.append(FieldsArray(fields, match.group(3), combine_op))
                 i += len(match.group(0))
                 continue
-            # Quoted value (single quotes): [field1,field2]:'value'
-            match = re.match(r"\[([^\]]+)\][:=]'([^']*)'", rule[i:])
+            # Quoted value (single quotes): [field1,field2]:'value' or [field1,field2]&:'value'
+            match = re.match(r"\[([^\]]+)\](&?)[:=]'([^']*)'", rule[i:])
             if match:
                 fields = [f.strip() for f in match.group(1).split(',')]
-                tokens.append(FieldsArray(fields, match.group(2)))
+                combine_op = 'and' if match.group(2) == '&' else 'or'
+                tokens.append(FieldsArray(fields, match.group(3), combine_op))
                 i += len(match.group(0))
                 continue
-            # Quoted value (backticks): [field1,field2]:`value`
-            match = re.match(r'\[([^\]]+)\][:=]`([^`]*)`', rule[i:])
+            # Quoted value (backticks): [field1,field2]:`value` or [field1,field2]&:`value`
+            match = re.match(r'\[([^\]]+)\](&?)[:=]`([^`]*)`', rule[i:])
             if match:
                 fields = [f.strip() for f in match.group(1).split(',')]
-                tokens.append(FieldsArray(fields, match.group(2)))
+                combine_op = 'and' if match.group(2) == '&' else 'or'
+                tokens.append(FieldsArray(fields, match.group(3), combine_op))
                 i += len(match.group(0))
                 continue
-            # Unquoted value: [field1,field2]:value
-            match = re.match(r'\[([^\]]+)\][:=]([^\s()\[\]"\'`]+)', rule[i:])
+            # Unquoted value: [field1,field2]:value or [field1,field2]&:value
+            match = re.match(r'\[([^\]]+)\](&?)[:=]([^\s()\[\]"\'`]+)', rule[i:])
             if match:
                 fields = [f.strip() for f in match.group(1).split(',')]
-                tokens.append(FieldsArray(fields, match.group(2)))
+                combine_op = 'and' if match.group(2) == '&' else 'or'
+                tokens.append(FieldsArray(fields, match.group(3), combine_op))
                 i += len(match.group(0))
                 continue
 
@@ -231,9 +238,10 @@ class FieldArrayExpr:
 
 @dataclass
 class FieldsArrayExpr:
-    """Array of fields with a single value, e.g., [field1,field2]:value"""
+    """Array of fields with a single value, e.g., [field1,field2]:value or [field1,field2]&:value"""
     fields: List[str]
     value: str
+    combine_op: str = 'or'  # 'or' for default, 'and' for & modifier
 
 
 @dataclass
@@ -339,7 +347,7 @@ class Parser:
 
         if isinstance(token, FieldsArray):
             self.consume()
-            return FieldsArrayExpr(token.fields, token.value)
+            return FieldsArrayExpr(token.fields, token.value, token.combine_op)
 
         if isinstance(token, FieldValue):
             self.consume()
@@ -384,16 +392,17 @@ def transform(expr: Expr, preserve_fields: Optional[Set[str]] = None, ignore_fie
 
     if isinstance(expr, FieldsArrayExpr):
         # [field1,field2]:value becomes (has(field1) or has(field2))
+        # [field1,field2]&:value becomes (has(field1) and has(field2))
         # Filter out ignored fields
         valid_fields = [f for f in expr.fields if f not in ignore_fields]
         if not valid_fields:
             return None
         if len(valid_fields) == 1:
             return HasExpr(valid_fields[0])
-        # Build OR expression: has(field1) or has(field2) or ...
+        # Build expression using the combine_op (or/and)
         result: Expr = HasExpr(valid_fields[0])
         for field in valid_fields[1:]:
-            result = BinaryExpr(result, 'or', HasExpr(field))
+            result = BinaryExpr(result, expr.combine_op, HasExpr(field))
         return GroupExpr(result)
 
     if isinstance(expr, FunctionExpr):
