@@ -327,6 +327,13 @@ class TestFieldArraySyntax(unittest.TestCase):
             "class:ms_windows_event and (has(eventlog) or has(category)) and has(source) and has(eventid)"
         )
 
+    def test_field_array_with_ampersand_and(self):
+        """Array of field names with & modifier becomes AND of has() checks."""
+        self.assertEqual(
+            normalize("class:ms_windows_event [hostname,domain]&:microsoft.com"),
+            "class:ms_windows_event and (has(hostname) and has(domain))"
+        )
+
 
 class TestComplexRules(unittest.TestCase):
     """Test complex combined rules."""
