@@ -288,6 +288,13 @@ class TestFunctionCalls(unittest.TestCase):
             "class:ms_windows_event and has(srcipv4)"
         )
 
+    def test_explicit_has_colon_style_preserved(self):
+        """Explicit has:field syntax should be preserved even for ignored fields."""
+        self.assertEqual(
+            normalize("class=ms_windows_event has:srcipv4"),
+            "class:ms_windows_event and has(srcipv4)"
+        )
+
     def test_colon_style_has_missing(self):
         self.assertEqual(
             normalize("class:ms_windows_event has:username missing:domain"),
