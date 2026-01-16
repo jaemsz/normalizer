@@ -15,14 +15,14 @@ class TestNormalize(unittest.TestCase):
         """Other field:value becomes has(field)."""
         self.assertEqual(
             normalize("class:ms_windows_event eventid:1234"),
-            "class:ms_windows_event and has(eventid)"
+            "class:ms_windows_event has(eventid)"
         )
 
     def test_class_with_or_expression(self):
         """Duplicate has(field) at same parenthesis level are deduplicated."""
         self.assertEqual(
             normalize("class:ms_windows_event (eventid:1234 or eventid:2345)"),
-            "class:ms_windows_event and (has(eventid))"
+            "class:ms_windows_event has(eventid)"
         )
 
 
@@ -32,31 +32,31 @@ class TestArraySyntax(unittest.TestCase):
     def test_array_values(self):
         self.assertEqual(
             normalize("class:ms_windows_event status:[foo,bar]"),
-            "class:ms_windows_event and has(status)"
+            "class:ms_windows_event has(status)"
         )
 
     def test_negated_array(self):
         self.assertEqual(
             normalize("class:ms_windows_event not status:[foo,bar]"),
-            "class:ms_windows_event and has(status)"
+            "class:ms_windows_event has(status)"
         )
 
     def test_combined_with_array(self):
         self.assertEqual(
             normalize("class:ms_windows_event eventid:1234 not status:[error,warning]"),
-            "class:ms_windows_event and has(eventid) and has(status)"
+            "class:ms_windows_event has(eventid) has(status)"
         )
 
     def test_exclamation_negation_array(self):
         self.assertEqual(
             normalize("class:ms_windows_event !field:[abc,foo,123]"),
-            "class:ms_windows_event and has(field)"
+            "class:ms_windows_event has(field)"
         )
 
     def test_exclamation_negation_single(self):
         self.assertEqual(
             normalize("class:ms_windows_event !eventid:1234"),
-            "class:ms_windows_event and has(eventid)"
+            "class:ms_windows_event has(eventid)"
         )
 
 
@@ -69,19 +69,19 @@ class TestEqualsSyntax(unittest.TestCase):
     def test_equals_with_field(self):
         self.assertEqual(
             normalize("class=ms_windows_event eventid=1234"),
-            "class:ms_windows_event and has(eventid)"
+            "class:ms_windows_event has(eventid)"
         )
 
     def test_equals_with_array(self):
         self.assertEqual(
             normalize("class=ms_windows_event status=[foo,bar]"),
-            "class:ms_windows_event and has(status)"
+            "class:ms_windows_event has(status)"
         )
 
     def test_equals_negation_array(self):
         self.assertEqual(
             normalize("class=ms_windows_event !status=[error,warning]"),
-            "class:ms_windows_event and has(status)"
+            "class:ms_windows_event has(status)"
         )
 
 
@@ -91,49 +91,49 @@ class TestQuotedValues(unittest.TestCase):
     def test_double_quotes(self):
         self.assertEqual(
             normalize('class:ms_windows_event field="the value"'),
-            "class:ms_windows_event and has(field)"
+            "class:ms_windows_event has(field)"
         )
 
     def test_double_quotes_class(self):
         self.assertEqual(
             normalize('class="ms_windows_event" message="hello world"'),
-            "class:ms_windows_event and has(message)"
+            "class:ms_windows_event has(message)"
         )
 
     def test_quoted_array(self):
         self.assertEqual(
             normalize('class:ms_windows_event status=["error message", "warning text"]'),
-            "class:ms_windows_event and has(status)"
+            "class:ms_windows_event has(status)"
         )
 
     def test_single_quotes(self):
         self.assertEqual(
             normalize("class:ms_windows_event field='the value'"),
-            "class:ms_windows_event and has(field)"
+            "class:ms_windows_event has(field)"
         )
 
     def test_single_quotes_class(self):
         self.assertEqual(
             normalize("class='ms_windows_event' message='hello world'"),
-            "class:ms_windows_event and has(message)"
+            "class:ms_windows_event has(message)"
         )
 
     def test_backticks(self):
         self.assertEqual(
             normalize("class:ms_windows_event field=`the value`"),
-            "class:ms_windows_event and has(field)"
+            "class:ms_windows_event has(field)"
         )
 
     def test_backticks_class(self):
         self.assertEqual(
             normalize("class=`ms_windows_event` message=`hello world`"),
-            "class:ms_windows_event and has(message)"
+            "class:ms_windows_event has(message)"
         )
 
     def test_mixed_quotes_array(self):
         self.assertEqual(
             normalize("class:ms_windows_event status=['error', \"warning\", `info`]"),
-            "class:ms_windows_event and has(status)"
+            "class:ms_windows_event has(status)"
         )
 
 
@@ -142,26 +142,26 @@ class TestNestedParentheses(unittest.TestCase):
 
     def test_nested_or_and(self):
         self.assertEqual(
-            normalize("class:ms_windows_event (eventid:1234 or (status:error and level:critical))"),
-            "class:ms_windows_event and (has(eventid) or (has(status) and has(level)))"
+            normalize("class:ms_windows_event (eventid:1234 or (status:error level:critical))"),
+            "class:ms_windows_event (has(eventid) or (has(status) has(level)))"
         )
 
     def test_double_nested(self):
         self.assertEqual(
-            normalize("class:ms_windows_event ((eventid:1234 or eventid:5678) and (status:error or status:warning))"),
-            "class:ms_windows_event and ((has(eventid)) and (has(status)))"
+            normalize("class:ms_windows_event ((eventid:1234 or eventid:5678) (status:error or status:warning))"),
+            "class:ms_windows_event (has(eventid) has(status))"
         )
 
     def test_triple_nested(self):
         self.assertEqual(
-            normalize("class:ms_windows_event (((field1:a or field1:b) and field2:c) or (field3:d and (field4:e or field4:f)))"),
-            "class:ms_windows_event and (((has(field1)) and has(field2)) or (has(field3) and (has(field4))))"
+            normalize("class:ms_windows_event (((field1:a or field1:b) field2:c) or (field3:d (field4:e or field4:f)))"),
+            "class:ms_windows_event ((has(field1) has(field2)) or (has(field3) has(field4)))"
         )
 
     def test_deep_nesting_with_negation(self):
         self.assertEqual(
-            normalize("class:ms_windows_event (eventid:123 and (!status:[error,warning] or (level:high and !source:internal)))"),
-            "class:ms_windows_event and (has(eventid) and (has(status) or (has(level) and has(source))))"
+            normalize("class:ms_windows_event (eventid:123 (!status:[error,warning] or (level:high !source:internal)))"),
+            "class:ms_windows_event (has(eventid) (has(status) or (has(level) has(source))))"
         )
 
 
@@ -171,13 +171,13 @@ class TestMetaclass(unittest.TestCase):
     def test_metaclass_preserved(self):
         self.assertEqual(
             normalize("metaclass:network_event status:active"),
-            "metaclass:network_event and has(status)"
+            "metaclass:network_event has(status)"
         )
 
     def test_class_and_metaclass(self):
         self.assertEqual(
             normalize("class:ms_windows_event metaclass:security eventid:1234"),
-            "class:ms_windows_event and metaclass:security and has(eventid)"
+            "class:ms_windows_event metaclass:security has(eventid)"
         )
 
 
@@ -187,19 +187,19 @@ class TestNotEqualSeparator(unittest.TestCase):
     def test_not_equal_single_quoted(self):
         self.assertEqual(
             normalize("class:ms_windows_event action!:'block'"),
-            "class:ms_windows_event and has(action)"
+            "class:ms_windows_event has(action)"
         )
 
     def test_not_equal_multiple(self):
         self.assertEqual(
             normalize("class:ms_windows_event status!:error level!:critical"),
-            "class:ms_windows_event and has(status) and has(level)"
+            "class:ms_windows_event has(status) has(level)"
         )
 
     def test_not_equal_array(self):
         self.assertEqual(
             normalize("class:ms_windows_event action!:[allow,deny]"),
-            "class:ms_windows_event and has(action)"
+            "class:ms_windows_event has(action)"
         )
 
 
@@ -210,19 +210,19 @@ class TestVariableValues(unittest.TestCase):
         # srcipv4 is in ignore_fields, so use a different field
         self.assertEqual(
             normalize("class:ms_windows_event hostname:$exclusions.global.hostname"),
-            "class:ms_windows_event and has(hostname)"
+            "class:ms_windows_event has(hostname)"
         )
 
     def test_multiple_variables(self):
         self.assertEqual(
             normalize("class:ms_windows_event srchost:$vars.ip dsthost:$vars.target"),
-            "class:ms_windows_event and has(srchost) and has(dsthost)"
+            "class:ms_windows_event has(srchost) has(dsthost)"
         )
 
     def test_negated_variable(self):
         self.assertEqual(
             normalize("class:ms_windows_event !field:$some.variable"),
-            "class:ms_windows_event and has(field)"
+            "class:ms_windows_event has(field)"
         )
 
 
@@ -232,19 +232,19 @@ class TestSpecialSyntax(unittest.TestCase):
     def test_ampersand_array(self):
         self.assertEqual(
             normalize("class:ms_windows_event args:&[`fielssytem`,`--test`]"),
-            "class:ms_windows_event and has(args)"
+            "class:ms_windows_event has(args)"
         )
 
     def test_regex_values(self):
         self.assertEqual(
             normalize("class:ms_windows_event field:/foobar/"),
-            "class:ms_windows_event and has(field)"
+            "class:ms_windows_event has(field)"
         )
 
     def test_regex_complex(self):
         self.assertEqual(
             normalize("class:ms_windows_event pattern:/^test.*end$/"),
-            "class:ms_windows_event and has(pattern)"
+            "class:ms_windows_event has(pattern)"
         )
 
 
@@ -260,14 +260,14 @@ class TestIgnoredFields(unittest.TestCase):
     def test_rawmsg_in_middle(self):
         self.assertEqual(
             normalize("class:ms_windows_event eventid:1234 rawmsg:'some message' status:error"),
-            "class:ms_windows_event and has(eventid) and has(status)"
+            "class:ms_windows_event has(eventid) has(status)"
         )
 
     def test_rawmsg_in_group(self):
         # Single-element groups are unwrapped after ignored field is removed
         self.assertEqual(
             normalize("class:ms_windows_event (rawmsg:/pattern/ or eventid:123)"),
-            "class:ms_windows_event and has(eventid)"
+            "class:ms_windows_event has(eventid)"
         )
 
 
@@ -278,63 +278,63 @@ class TestFunctionCalls(unittest.TestCase):
         """Explicit has(field) in rule should be preserved in output."""
         self.assertEqual(
             normalize("class=ms_windows_event has(srcipv4)"),
-            "class:ms_windows_event and has(srcipv4)"
+            "class:ms_windows_event has(srcipv4)"
         )
 
     def test_explicit_has_deduplicated(self):
         """Duplicate explicit has(field) calls should be deduplicated."""
         self.assertEqual(
             normalize("class=ms_windows_event has(srcipv4) has(srcipv4)"),
-            "class:ms_windows_event and has(srcipv4)"
+            "class:ms_windows_event has(srcipv4)"
         )
 
     def test_explicit_has_colon_style_preserved(self):
         """Explicit has:field syntax should be preserved even for ignored fields."""
         self.assertEqual(
             normalize("class=ms_windows_event has:srcipv4"),
-            "class:ms_windows_event and has(srcipv4)"
+            "class:ms_windows_event has(srcipv4)"
         )
 
     def test_colon_style_has_missing(self):
         self.assertEqual(
             normalize("class:ms_windows_event has:username missing:domain"),
-            "class:ms_windows_event and has(username) and has(domain)"
+            "class:ms_windows_event has(username) has(domain)"
         )
 
     def test_colon_style_hash_functions(self):
         self.assertEqual(
             normalize("class:ms_windows_event md5:filehash sha256:checksum"),
-            "class:ms_windows_event and has(filehash) and has(checksum)"
+            "class:ms_windows_event has(filehash) has(checksum)"
         )
 
     def test_colon_style_transform_functions(self):
         self.assertEqual(
             normalize("class:ms_windows_event lower:hostname upper:status length:message"),
-            "class:ms_windows_event and has(hostname) and has(status) and has(message)"
+            "class:ms_windows_event has(hostname) has(status) has(message)"
         )
 
     def test_function_call_comparison(self):
         self.assertEqual(
             normalize("class=ms_windows_event length(domain)>20"),
-            "class:ms_windows_event and has(domain)"
+            "class:ms_windows_event has(domain)"
         )
 
     def test_multiple_function_calls(self):
         self.assertEqual(
-            normalize("class=ms_windows_event length(username)>=10 and count(events)<100"),
-            "class:ms_windows_event and has(username) and has(events)"
+            normalize("class=ms_windows_event length(username)>=10 count(events)<100"),
+            "class:ms_windows_event has(username) has(events)"
         )
 
     def test_function_calls_in_group(self):
         self.assertEqual(
             normalize("class=ms_windows_event (length(domain)>20 or size(payload)!=0)"),
-            "class:ms_windows_event and (has(domain) or has(payload))"
+            "class:ms_windows_event (has(domain) or has(payload))"
         )
 
     def test_negated_function_call(self):
         self.assertEqual(
             normalize("class=ms_windows_event !length(field)=0"),
-            "class:ms_windows_event and has(field)"
+            "class:ms_windows_event has(field)"
         )
 
 
@@ -345,32 +345,39 @@ class TestFieldArraySyntax(unittest.TestCase):
         """Array of field names becomes OR of has() checks."""
         self.assertEqual(
             normalize("class=ms_windows_event [eventlog,category]:application source:/mssql/ eventid=123"),
-            "class:ms_windows_event and (has(eventlog) or has(category)) and has(source) and has(eventid)"
+            "class:ms_windows_event (has(eventlog) or has(category)) has(source) has(eventid)"
         )
 
     def test_field_array_with_ampersand_and(self):
         """Array of field names with & modifier becomes AND of has() checks."""
         self.assertEqual(
             normalize("class:ms_windows_event [hostname,domain]&:microsoft.com"),
-            "class:ms_windows_event and (has(hostname) and has(domain))"
+            "class:ms_windows_event (has(hostname) has(domain))"
         )
 
 
 class TestDeduplication(unittest.TestCase):
-    """Test deduplication of identical groups and expressions."""
+    """Test deduplication of identical groups expressions."""
+
+    def test_single_item_group_unwrapped(self):
+        """Group that deduplicates to single item should have parentheses removed."""
+        self.assertEqual(
+            normalize("class=ms_windows_event (domain=foo.com or domain=bar.com)"),
+            "class:ms_windows_event has(domain)"
+        )
 
     def test_duplicate_groups_deduplicated(self):
         """Identical parenthesized groups should be deduplicated."""
         self.assertEqual(
-            normalize("(class:ms_windows_event category=threat status:[new,updated] severity:high) and (class:ms_windows_event category=threat status:[new,updated] severity:high)"),
-            "class:ms_windows_event and has(category) and has(status) and has(severity)"
+            normalize("(class:ms_windows_event category=threat status:[new,updated] severity:high) (class:ms_windows_event category=threat status:[new,updated] severity:high)"),
+            "class:ms_windows_event has(category) has(status) has(severity)"
         )
 
     def test_overlapping_groups_merged(self):
         """Groups with overlapping fields should be merged with all unique fields."""
         self.assertEqual(
-            normalize("(class:ms_windows_event category=threat status:[new,updated] severity:high) and (class:ms_windows_event category=threat status:[new,updated] severity:high domain:foobar.com)"),
-            "class:ms_windows_event and has(category) and has(status) and has(severity) and has(domain)"
+            normalize("(class:ms_windows_event category=threat status:[new,updated] severity:high) (class:ms_windows_event category=threat status:[new,updated] severity:high domain:foobar.com)"),
+            "class:ms_windows_event has(category) has(status) has(severity) has(domain)"
         )
 
 
@@ -384,7 +391,7 @@ class TestComplexRules(unittest.TestCase):
         # srcipv4 is in ignore_fields, so it's removed
         self.assertEqual(
             result,
-            "metaclass:windows and has(eventid) and (has(msg) or has(serviceid))"
+            "metaclass:windows has(eventid) (has(msg) or has(serviceid))"
         )
 
     def test_complex_with_missing_and_multiple_not(self):
@@ -394,11 +401,11 @@ class TestComplexRules(unittest.TestCase):
         # dstport, rawmsg, srcipv4 are in ignore_fields, so they're removed
         self.assertEqual(
             result,
-            "metaclass:http_proxy and has(referrer) and has(useragent) and has(domain) and has(dstdomain)"
+            "metaclass:http_proxy has(referrer) has(useragent) has(domain) has(dstdomain)"
         )
 
     def test_complex_or_branches_with_regex(self):
-        """Complex rule with multiple OR branches, regex patterns, and various syntax."""
+        """Complex rule with multiple OR branches, regex patterns, various syntax."""
         rule = (
             'metaclass:http_proxy (useragent="Mozilla/3.0 (compatible; Indy Library)" '
             r'uri:/find_dnfile\.php\?u[a-z0-9]{64}/) OR (httpmethod=post useragent="python" '
@@ -413,8 +420,8 @@ class TestComplexRules(unittest.TestCase):
         # srcipv4 is in ignore_fields, so it's removed
         self.assertEqual(
             result,
-            "metaclass:http_proxy and (has(useragent) and has(uri)) or "
-            "(has(httpmethod) and has(useragent) and has(uri))"
+            "metaclass:http_proxy (has(useragent) has(uri)) or "
+            "(has(httpmethod) has(useragent) has(uri))"
         )
 
     def test_metaclass_array_with_ignored_fields(self):
@@ -425,16 +432,16 @@ class TestComplexRules(unittest.TestCase):
             r'NOT srcipv4:$exclusions.global.srcipv4'
         )
         result = normalize(rule)
-        # dstipv4 and srcipv4 are in ignore_fields
+        # dstipv4 srcipv4 are in ignore_fields
         # Single-element group (dstisp) is unwrapped
         self.assertEqual(
             result,
-            "metaclass:[asa,http_proxy] and has(dstisp) and has(uri)"
+            "metaclass:[asa,http_proxy] has(dstisp) has(uri)"
         )
 
 
 class TestEdgeCasesGracefulHandling(unittest.TestCase):
-    """Test that edge cases and invalid inputs are handled gracefully without exceptions."""
+    """Test that edge cases invalid inputs are handled gracefully without exceptions."""
 
     def test_empty_string(self):
         """Empty input returns empty output."""
@@ -473,7 +480,7 @@ class TestEdgeCasesGracefulHandling(unittest.TestCase):
 
     def test_consecutive_operators(self):
         """Consecutive operators are handled gracefully."""
-        result = normalize("class:foo and and bar:baz")
+        result = normalize("class:foo and bar:baz")
         self.assertIn("class:foo", result)
 
     def test_operator_at_start(self):
@@ -536,15 +543,15 @@ class TestEdgeCasesGracefulHandling(unittest.TestCase):
     def test_newlines_in_input(self):
         """Newlines in input are handled as whitespace."""
         result = normalize("class:foo\neventid:123")
-        self.assertEqual(result, "class:foo and has(eventid)")
+        self.assertEqual(result, "class:foo has(eventid)")
 
     def test_tabs_in_input(self):
         """Tabs in input are handled as whitespace."""
         result = normalize("class:foo\teventid:123")
-        self.assertEqual(result, "class:foo and has(eventid)")
+        self.assertEqual(result, "class:foo has(eventid)")
 
     def test_mixed_valid_invalid(self):
-        """Mix of valid and invalid tokens extracts valid parts."""
+        """Mix of valid invalid tokens extracts valid parts."""
         result = normalize("class:foo @#$ eventid:123")
         self.assertIn("class:foo", result)
 
@@ -560,13 +567,13 @@ class TestNoneHandling(unittest.TestCase):
         """Ignored field in OR group simplifies correctly."""
         # Single-element groups are unwrapped after ignored field is removed
         result = normalize("class:foo (rawmsg:test or eventid:123)")
-        self.assertEqual(result, "class:foo and has(eventid)")
+        self.assertEqual(result, "class:foo has(eventid)")
 
     def test_ignored_in_and_group(self):
         """Ignored field in AND group simplifies correctly."""
         # Single-element groups are unwrapped after ignored field is removed
-        result = normalize("class:foo (rawmsg:test and eventid:123)")
-        self.assertEqual(result, "class:foo and has(eventid)")
+        result = normalize("class:foo (rawmsg:test eventid:123)")
+        self.assertEqual(result, "class:foo has(eventid)")
 
     def test_all_ignored_in_group(self):
         """Group with all ignored fields simplifies correctly."""
