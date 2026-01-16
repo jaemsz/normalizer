@@ -509,6 +509,40 @@ def get_field_signature(expr: Expr, preserve_fields: Optional[Set[str]] = None) 
     return frozenset()
 
 
+def is_and_only_group(expr: GroupExpr) -> bool:
+    """Check if a group contains only AND-connected terms (no OR operators).
+
+    Single-element groups are NOT flattenable - they represent semantic grouping
+    from OR expressions that were deduplicated.
+    """
+    inner = expr.expr
+    if inner is None:
+        return False
+    # Single-element groups should not be flattened
+    if isinstance(inner, (FieldExpr, FieldArrayExpr, HasExpr)):
+        return False
+    if isinstance(inner, BinaryExpr):
+        # Check if all operators in this expression tree are AND
+        return _check_all_and(inner)
+    return False
+
+
+def _check_all_and(expr: Expr) -> bool:
+    """Recursively check if all binary operators in the expression are AND."""
+    if expr is None:
+        return True
+    if isinstance(expr, (FieldExpr, FieldArrayExpr, HasExpr)):
+        return True
+    if isinstance(expr, GroupExpr):
+        # Groups inside can have OR, don't flatten those
+        return False
+    if isinstance(expr, BinaryExpr):
+        if expr.op == 'or':
+            return False
+        return _check_all_and(expr.left) and _check_all_and(expr.right)
+    return True
+
+
 def deduplicate(expr: Expr) -> Expr:
     """
     Deduplicate has() expressions at the same level.
@@ -537,8 +571,27 @@ def deduplicate(expr: Expr) -> Expr:
         for term in terms:
             deduped_terms.append(deduplicate(term))
 
+        # For AND expressions, flatten groups only when there are multiple groups
+        # This allows merging overlapping groups while preserving single groups
+        if op == 'and':
+            # Count how many GroupExpr terms we have that can be flattened
+            flattenable_groups = [t for t in deduped_terms if isinstance(t, GroupExpr) and is_and_only_group(t)]
+            # Only flatten if there are 2+ groups that can be merged
+            if len(flattenable_groups) >= 2:
+                flattened: List[Expr] = []
+                for term in deduped_terms:
+                    if isinstance(term, GroupExpr) and is_and_only_group(term):
+                        # Flatten the group's contents
+                        inner_terms: List[Expr] = []
+                        collect_terms_with_op(term.expr, inner_terms, 'and')
+                        flattened.extend(inner_terms)
+                    else:
+                        flattened.append(term)
+                deduped_terms = flattened
+
         # Deduplicate based on operator type
         seen_has: Set[str] = set()
+        seen_field_expr: Set[tuple] = set()  # (field, value) tuples for FieldExpr
         seen_signatures: Set[FrozenSet[str]] = set()
         deduped: List[Expr] = []
 
@@ -551,8 +604,11 @@ def deduplicate(expr: Expr) -> Expr:
                     seen_has.add(term.field)
                     deduped.append(term)
             elif isinstance(term, FieldExpr):
-                # FieldExpr (preserved fields like class/metaclass) - always keep
-                deduped.append(term)
+                # FieldExpr (preserved fields like class/metaclass) - deduplicate by field+value
+                key = (term.field, term.value)
+                if key not in seen_field_expr:
+                    seen_field_expr.add(key)
+                    deduped.append(term)
             else:
                 # For both AND and OR branches, deduplicate by field signature
                 sig = get_field_signature(term)
@@ -564,12 +620,8 @@ def deduplicate(expr: Expr) -> Expr:
         if not deduped:
             return None
 
-        # If only one term remains and it's a GroupExpr, unwrap it
         if len(deduped) == 1:
-            term = deduped[0]
-            if isinstance(term, GroupExpr):
-                return term.expr
-            return term
+            return deduped[0]
 
         result: Expr = deduped[0]
         for term in deduped[1:]:
