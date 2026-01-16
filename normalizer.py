@@ -64,7 +64,13 @@ class FunctionCall:
     value: str
 
 
-Token = Union[FieldValue, FieldArray, FieldsArray, Operator, NotOperator, OpenParen, CloseParen, FunctionCall]
+@dataclass
+class ExplicitHas:
+    """Explicit has(field) function call that should be preserved in output."""
+    field: str
+
+
+Token = Union[FieldValue, FieldArray, FieldsArray, Operator, NotOperator, OpenParen, CloseParen, FunctionCall, ExplicitHas]
 
 
 def tokenize(rule: str) -> List[Token]:
@@ -156,6 +162,13 @@ def tokenize(rule: str) -> List[Token]:
         if rule[i:i+2].lower() == 'or' and (i+2 >= len(rule) or not rule[i+2].isalnum()):
             tokens.append(Operator('or'))
             i += 2
+            continue
+
+        # Explicit has(field) or missing(field) pattern - should be preserved in output
+        match = re.match(r'(has|missing)\(([a-zA-Z_][a-zA-Z0-9_]*)\)', rule[i:], re.IGNORECASE)
+        if match:
+            tokens.append(ExplicitHas(match.group(2)))
+            i += len(match.group(0))
             continue
 
         # Function call pattern: func(field)operator value, e.g., length(domain)>20
@@ -259,6 +272,12 @@ class HasExpr:
 
 
 @dataclass
+class ExplicitHasExpr:
+    """Explicit has(field) that should be preserved in output regardless of ignore_fields."""
+    field: str
+
+
+@dataclass
 class NotExpr:
     """Negation expression."""
     expr: 'Expr'
@@ -276,7 +295,7 @@ class GroupExpr:
     expr: 'Expr'
 
 
-Expr = Union[FieldExpr, FieldArrayExpr, FieldsArrayExpr, FunctionExpr, HasExpr, NotExpr, BinaryExpr, GroupExpr, None]
+Expr = Union[FieldExpr, FieldArrayExpr, FieldsArrayExpr, FunctionExpr, HasExpr, ExplicitHasExpr, NotExpr, BinaryExpr, GroupExpr, None]
 
 
 class Parser:
@@ -310,7 +329,7 @@ class Parser:
                 self.consume()
                 right = self.parse_primary()
                 left = BinaryExpr(left, token.op, right)
-            elif isinstance(token, (FieldValue, FieldArray, FieldsArray, FunctionCall, OpenParen, NotOperator)):
+            elif isinstance(token, (FieldValue, FieldArray, FieldsArray, FunctionCall, ExplicitHas, OpenParen, NotOperator)):
                 # Implicit AND between consecutive terms
                 right = self.parse_primary()
                 left = BinaryExpr(left, 'and', right)
@@ -336,6 +355,10 @@ class Parser:
             if isinstance(self.peek(), CloseParen):
                 self.consume()
             return GroupExpr(expr)
+
+        if isinstance(token, ExplicitHas):
+            self.consume()
+            return ExplicitHasExpr(token.field)
 
         if isinstance(token, FunctionCall):
             self.consume()
@@ -409,6 +432,10 @@ def transform(expr: Expr, preserve_fields: Optional[Set[str]] = None, ignore_fie
         if expr.field in ignore_fields:
             return None
         # Function calls are transformed to has(field) for the field argument
+        return HasExpr(expr.field)
+
+    if isinstance(expr, ExplicitHasExpr):
+        # Explicit has(field) is preserved regardless of ignore_fields
         return HasExpr(expr.field)
 
     if isinstance(expr, NotExpr):
