@@ -317,6 +317,17 @@ class TestFunctionCalls(unittest.TestCase):
         )
 
 
+class TestFieldArraySyntax(unittest.TestCase):
+    """Test array of field names syntax (e.g., [field1,field2]:value)."""
+
+    def test_field_array_with_multiple_fields(self):
+        """Array of field names becomes OR of has() checks."""
+        self.assertEqual(
+            normalize("class=ms_windows_event [eventlog,category]:application source:/mssql/ eventid=123"),
+            "class:ms_windows_event and (has(eventlog) or has(category)) and has(source) and has(eventid)"
+        )
+
+
 class TestComplexRules(unittest.TestCase):
     """Test complex combined rules."""
 
