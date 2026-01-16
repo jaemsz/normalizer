@@ -27,6 +27,13 @@ class FieldArray:
 
 
 @dataclass
+class FieldsArray:
+    """Array of fields with a single value, e.g., [field1,field2]:value"""
+    fields: List[str]
+    value: str
+
+
+@dataclass
 class Operator:
     op: str  # 'and', 'or'
 
@@ -56,7 +63,7 @@ class FunctionCall:
     value: str
 
 
-Token = Union[FieldValue, FieldArray, Operator, NotOperator, OpenParen, CloseParen, FunctionCall]
+Token = Union[FieldValue, FieldArray, FieldsArray, Operator, NotOperator, OpenParen, CloseParen, FunctionCall]
 
 
 def tokenize(rule: str) -> List[Token]:
@@ -70,6 +77,46 @@ def tokenize(rule: str) -> List[Token]:
         if rule[i].isspace():
             i += 1
             continue
+
+        # [field1,field2]:value pattern (array of fields with single value)
+        # Must check before open parenthesis since both start with special chars
+        if rule[i] == '[':
+            # Try to match [fields]:value pattern with various value types
+            # Regex value: [field1,field2]:/pattern/
+            match = re.match(r'\[([^\]]+)\][:=](/[^/]*/)', rule[i:])
+            if match:
+                fields = [f.strip() for f in match.group(1).split(',')]
+                tokens.append(FieldsArray(fields, match.group(2)))
+                i += len(match.group(0))
+                continue
+            # Quoted value (double quotes): [field1,field2]:"value"
+            match = re.match(r'\[([^\]]+)\][:=]"([^"]*)"', rule[i:])
+            if match:
+                fields = [f.strip() for f in match.group(1).split(',')]
+                tokens.append(FieldsArray(fields, match.group(2)))
+                i += len(match.group(0))
+                continue
+            # Quoted value (single quotes): [field1,field2]:'value'
+            match = re.match(r"\[([^\]]+)\][:=]'([^']*)'", rule[i:])
+            if match:
+                fields = [f.strip() for f in match.group(1).split(',')]
+                tokens.append(FieldsArray(fields, match.group(2)))
+                i += len(match.group(0))
+                continue
+            # Quoted value (backticks): [field1,field2]:`value`
+            match = re.match(r'\[([^\]]+)\][:=]`([^`]*)`', rule[i:])
+            if match:
+                fields = [f.strip() for f in match.group(1).split(',')]
+                tokens.append(FieldsArray(fields, match.group(2)))
+                i += len(match.group(0))
+                continue
+            # Unquoted value: [field1,field2]:value
+            match = re.match(r'\[([^\]]+)\][:=]([^\s()\[\]"\'`]+)', rule[i:])
+            if match:
+                fields = [f.strip() for f in match.group(1).split(',')]
+                tokens.append(FieldsArray(fields, match.group(2)))
+                i += len(match.group(0))
+                continue
 
         # Open parenthesis
         if rule[i] == '(':
@@ -183,6 +230,13 @@ class FieldArrayExpr:
 
 
 @dataclass
+class FieldsArrayExpr:
+    """Array of fields with a single value, e.g., [field1,field2]:value"""
+    fields: List[str]
+    value: str
+
+
+@dataclass
 class FunctionExpr:
     """Function call expression, e.g., length(domain)>20"""
     func_name: str
@@ -214,7 +268,7 @@ class GroupExpr:
     expr: 'Expr'
 
 
-Expr = Union[FieldExpr, FieldArrayExpr, FunctionExpr, HasExpr, NotExpr, BinaryExpr, GroupExpr, None]
+Expr = Union[FieldExpr, FieldArrayExpr, FieldsArrayExpr, FunctionExpr, HasExpr, NotExpr, BinaryExpr, GroupExpr, None]
 
 
 class Parser:
@@ -224,12 +278,12 @@ class Parser:
         self.tokens = tokens
         self.pos = 0
 
-    def peek(self) -> Token | None:
+    def peek(self) -> Optional[Token]:
         if self.pos < len(self.tokens):
             return self.tokens[self.pos]
         return None
 
-    def consume(self) -> Token | None:
+    def consume(self) -> Optional[Token]:
         token = self.peek()
         if token:
             self.pos += 1
@@ -248,7 +302,7 @@ class Parser:
                 self.consume()
                 right = self.parse_primary()
                 left = BinaryExpr(left, token.op, right)
-            elif isinstance(token, (FieldValue, FieldArray, FunctionCall, OpenParen, NotOperator)):
+            elif isinstance(token, (FieldValue, FieldArray, FieldsArray, FunctionCall, OpenParen, NotOperator)):
                 # Implicit AND between consecutive terms
                 right = self.parse_primary()
                 left = BinaryExpr(left, 'and', right)
@@ -282,6 +336,10 @@ class Parser:
         if isinstance(token, FieldArray):
             self.consume()
             return FieldArrayExpr(token.field, token.values)
+
+        if isinstance(token, FieldsArray):
+            self.consume()
+            return FieldsArrayExpr(token.fields, token.value)
 
         if isinstance(token, FieldValue):
             self.consume()
@@ -323,6 +381,20 @@ def transform(expr: Expr, preserve_fields: Optional[Set[str]] = None, ignore_fie
             return FieldArrayExpr(expr.field, expr.values)
         else:
             return HasExpr(expr.field)
+
+    if isinstance(expr, FieldsArrayExpr):
+        # [field1,field2]:value becomes (has(field1) or has(field2))
+        # Filter out ignored fields
+        valid_fields = [f for f in expr.fields if f not in ignore_fields]
+        if not valid_fields:
+            return None
+        if len(valid_fields) == 1:
+            return HasExpr(valid_fields[0])
+        # Build OR expression: has(field1) or has(field2) or ...
+        result: Expr = HasExpr(valid_fields[0])
+        for field in valid_fields[1:]:
+            result = BinaryExpr(result, 'or', HasExpr(field))
+        return GroupExpr(result)
 
     if isinstance(expr, FunctionExpr):
         if expr.field in ignore_fields:
