@@ -550,19 +550,26 @@ def deduplicate(expr: Expr) -> Expr:
                 if term.field not in seen_has:
                     seen_has.add(term.field)
                     deduped.append(term)
-            elif op == 'or':
-                # For OR branches, deduplicate by field signature
+            elif isinstance(term, FieldExpr):
+                # FieldExpr (preserved fields like class/metaclass) - always keep
+                deduped.append(term)
+            else:
+                # For both AND and OR branches, deduplicate by field signature
                 sig = get_field_signature(term)
                 if sig not in seen_signatures:
                     seen_signatures.add(sig)
                     deduped.append(term)
-            else:
-                # For AND, keep all non-HasExpr terms
-                deduped.append(term)
 
         # Rebuild the expression tree
         if not deduped:
             return None
+
+        # If only one term remains and it's a GroupExpr, unwrap it
+        if len(deduped) == 1:
+            term = deduped[0]
+            if isinstance(term, GroupExpr):
+                return term.expr
+            return term
 
         result: Expr = deduped[0]
         for term in deduped[1:]:
