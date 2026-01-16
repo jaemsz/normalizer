@@ -558,7 +558,13 @@ def deduplicate(expr: Expr) -> Expr:
         return NotExpr(deduplicate(expr.expr))
 
     if isinstance(expr, GroupExpr):
-        return GroupExpr(deduplicate(expr.expr))
+        inner = deduplicate(expr.expr)
+        # Unwrap single-element groups (when inner is not a BinaryExpr)
+        if inner is None:
+            return None
+        if not isinstance(inner, BinaryExpr):
+            return inner
+        return GroupExpr(inner)
 
     if isinstance(expr, BinaryExpr):
         # Collect all terms at this level with the SAME operator
@@ -663,6 +669,9 @@ def to_string(expr: Expr) -> str:
     if isinstance(expr, BinaryExpr):
         left = to_string(expr.left)
         right = to_string(expr.right)
+        # Use implicit AND (space) instead of explicit "and"
+        if expr.op == 'and':
+            return f'{left} {right}'
         return f'{left} {expr.op} {right}'
 
     if isinstance(expr, GroupExpr):
