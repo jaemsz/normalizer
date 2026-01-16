@@ -366,6 +366,13 @@ class TestDeduplication(unittest.TestCase):
             "class:ms_windows_event and has(category) and has(status) and has(severity)"
         )
 
+    def test_overlapping_groups_merged(self):
+        """Groups with overlapping fields should be merged with all unique fields."""
+        self.assertEqual(
+            normalize("(class:ms_windows_event category=threat status:[new,updated] severity:high) and (class:ms_windows_event category=threat status:[new,updated] severity:high domain:foobar.com)"),
+            "class:ms_windows_event and has(category) and has(status) and has(severity) and has(domain)"
+        )
+
 
 class TestComplexRules(unittest.TestCase):
     """Test complex combined rules."""
