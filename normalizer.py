@@ -182,7 +182,12 @@ def tokenize(rule: str) -> List[Token]:
         colon_functions = {'md5', 'sha1', 'sha256', 'sha384', 'sha512', 'has', 'missing', 'lower', 'upper', 'length', 'equal'}
         match = re.match(r'([a-zA-Z_][a-zA-Z0-9_]*)[:=]([a-zA-Z_][a-zA-Z0-9_]*)\b', rule[i:])
         if match and match.group(1).lower() in colon_functions:
-            tokens.append(FunctionCall(match.group(1), match.group(2), '', ''))
+            func_name = match.group(1).lower()
+            # has:field and missing:field should be treated as explicit has() calls
+            if func_name in {'has', 'missing'}:
+                tokens.append(ExplicitHas(match.group(2)))
+            else:
+                tokens.append(FunctionCall(match.group(1), match.group(2), '', ''))
             i += len(match.group(0))
             continue
 
